@@ -1,0 +1,101 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-kontur}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-kontur_db}
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - redisdata:/data
+
+  minio:
+    image: minio/minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:?Set MINIO_ACCESS_KEY}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:?Set MINIO_SECRET_KEY}
+    ports:
+      - "127.0.0.1:9000:9000"
+      - "127.0.0.1:9001:9001"
+    volumes:
+      - miniodata:/data
+
+  api:
+    build: 
+      context: ./services/api
+    ports:
+      - "127.0.0.1:8000:8000"
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-kontur}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-kontur_db}
+      REDIS_URL: redis://redis:6379/0
+      MINIO_URL: http://minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:?Set MINIO_ACCESS_KEY}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:?Set MINIO_SECRET_KEY}
+      BOT_TOKEN: ${BOT_TOKEN:?Set BOT_TOKEN}
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET}
+    depends_on:
+      - db
+      - redis
+      - minio
+    volumes:
+      - ./services/api:/app
+    command: uvicorn main:app --host 0.0.0.0 --port 8000
+
+  worker:
+    build: 
+      context: ./services/worker
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-kontur}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-kontur_db}
+      REDIS_URL: redis://redis:6379/0
+      MINIO_URL: http://minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:?Set MINIO_ACCESS_KEY}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:?Set MINIO_SECRET_KEY}
+    depends_on:
+      - redis
+      - db
+      - minio
+    volumes:
+      - ./services/worker:/app/worker
+    command: celery -A worker.celery_app worker --loglevel=info
+
+  mini-app:
+    build: ./apps/mini-app
+    ports:
+      - "127.0.0.1:5173:80"
+    depends_on:
+      - api
+
+  admin:
+    build: ./apps/admin
+    ports:
+      - "127.0.0.1:5174:80"
+    depends_on:
+      - api
+
+  bot:
+    build: 
+      context: ./services/bot
+    environment:
+      BOT_TOKEN: ${BOT_TOKEN}
+      BACKEND_URL: http://api:8000/api/v1
+      REDIS_URL: redis://redis:6379/1
+    depends_on:
+      - api
+      - redis
+    volumes:
+      - ./services/bot:/app
+    command: python main.py
+
+volumes:
+  pgdata:
+  redisdata:
+  miniodata:

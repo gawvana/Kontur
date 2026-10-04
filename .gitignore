@@ -1,0 +1,23 @@
+node_modules/
+dist/
+.venv/
+.audit-venv/
+__pycache__/
+.pytest_cache/
+.env
+*.db
+*.tsbuildinfo
+.audit/
+
+# Private configuration and generated artifacts
+.env.*
+!.env.example
+*.sqlite
+*.sqlite3
+*.db-*
+*.log
+coverage/
+playwright-report/
+test-results/
+.DS_Store
+Thumbs.db
